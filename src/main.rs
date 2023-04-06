@@ -1,12 +1,15 @@
 use std::fs::{File, read_dir};
 use std::io::Write;
 use crate::aws::get_client;
+use crate::nexrad::read_volume_scan;
 
 use crate::noaa::{list_nexrad, download_nexrad};
 
 mod result;
 mod aws;
 mod noaa;
+mod nexrad;
+mod utility;
 
 #[tokio::main]
 async fn main() {
@@ -39,4 +42,6 @@ async fn main() {
     }
 
     println!("Done! ({} chunks)", file_names.len());
+
+    read_volume_scan(&format!("chunks/{}", file_names[0])).expect("can read volume scan");
 }
