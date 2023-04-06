@@ -1,46 +1,40 @@
 use aws_config::from_env;
-use aws_sdk_s3::{config::Region, types::Object, Client};
+use aws_sdk_s3::{Client, config::Region, types::Object};
 
-pub async fn list_nexrad(year: &str, month: &str, day: &str, site: &str) -> Result<Vec<String>, aws_sdk_s3::Error> {
-    let prefix = format!("{}/{}/{}/{}", year, month, day, site);
+use crate::result::Result;
 
-    let client = get_client().await;
-    let objects = list_objects(client, "noaa-nexrad-level2", &prefix)
-        .await
-        .expect("should fetch latest data")
-        .expect("should have objects");
+pub async fn get_object(
+    client: &Client,
+    bucket: &str,
+    key: &str,
+) -> Result<Vec<u8>> {
+    let builder = client
+        .get_object()
+        .bucket(bucket)
+        .key(key);
 
-    Ok(objects
-        .iter()
-        .map(|obj| {
-            let mut result = String::new();
-            result.push_str(obj.key().unwrap());
-            result.push_str(" - ");
-            result.push_str(&obj.last_modified().unwrap().to_millis().unwrap().to_string());
+    let operation = builder.customize().await?.map_operation(make_unsigned).unwrap();
 
-            return result;
-        })
-        .collect())
+    let response = operation.send().await?;
+    let bytes = response.body.collect().await.unwrap();
+
+    Ok(bytes.to_vec())
 }
 
 pub async fn list_objects(
-    client: Client,
+    client: &Client,
     bucket: &str,
     prefix: &str,
-) -> Result<Option<Vec<Object>>, aws_sdk_s3::Error> {
-    Ok(client
+) -> Result<Option<Vec<Object>>> {
+    let builder = client
         .list_objects_v2()
         .bucket(bucket)
-        .prefix(prefix)
-        .customize()
-        .await
-        .unwrap()
-        .map_operation(make_unsigned)
-        .unwrap()
-        .send()
-        .await?
-        .contents()
-        .map(|objects| objects.to_vec()))
+        .prefix(prefix);
+
+    let operation = builder.customize().await?.map_operation(make_unsigned).unwrap();
+    let response = operation.send().await?;
+
+    Ok(response.contents().map(|objects| objects.to_vec()))
 }
 
 pub async fn get_client() -> Client {
@@ -51,7 +45,7 @@ pub async fn get_client() -> Client {
 // Disables signing requirements for unauthenticated S3 requests.
 fn make_unsigned<O, Retry>(
     mut operation: aws_smithy_http::operation::Operation<O, Retry>,
-) -> Result<aws_smithy_http::operation::Operation<O, Retry>, std::convert::Infallible> {
+) -> std::result::Result<aws_smithy_http::operation::Operation<O, Retry>, std::convert::Infallible> {
     {
         let mut props = operation.properties_mut();
         let mut signing_config = props
