@@ -1,37 +1,54 @@
 use std::fs::File;
-use std::io::Read;
-use std::str::from_utf8;
+use std::io::{Read, Seek};
+use std::path::Path;
 
 use bincode::{DefaultOptions, Options};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-
 use serde_big_array::BigArray;
 
-use crate::result::{Result, unexpected_error};
+use crate::result::Result;
 
 pub fn read_nexrad_file(path: &str) -> Result<()> {
     println!("Reading NEXRAD: {:?}", path);
 
-    let mut file = File::open(path)?;
+    let decompressed_path = format!("{}_decompressed", path);
+    if !Path::new(&decompressed_path).exists() {
+        decompress_file(path, &decompressed_path)?;
+    }
 
-    let file_header: FileHeader = deserialize(&file)?;
-    let message_type = file_header.message_type()?
-        .ok_or_else(|| unexpected_error("Invalid or unknown message type"))?;
+    read_decompressed_file(&decompressed_path)?;
 
-    println!("Date {}, Time {}, Type {:?}",
-             file_header.title.file_date,
-             file_header.title.file_time,
-             message_type);
-
-    match message_type {
-        MessageType::Type31 => read_m31(&mut file)?,
-    };
+    println!("  Done reading.");
 
     Ok(())
 }
 
-fn read_m31(_file: &mut File) -> Result<()> {
-    // TODO: parse message format 31
+fn decompress_file(path: &str, decompressed_path: &str) -> Result<()> {
+    println!("  Decompressing file {} to {}", path, decompressed_path);
+    // TODO: bzip2 decompress file
+    Ok(())
+}
+
+fn read_decompressed_file(path: &str) -> Result<()> {
+    println!("  Reading decompressed file {}", path);
+
+    let mut file = File::open(path)?;
+
+    let file_header: FileHeader = deserialize(&file)?;
+    println!("  File header - date {}, time {}", file_header.title.file_date, file_header.title.file_time);
+
+    while file.stream_position()? < file.metadata()?.len() {
+        println!("    Reading message");
+        let message_header: MessageHeader = deserialize(&file)?;
+        println!("      Message - type: {}, size: {}, seg: {}",
+                 message_header.msg_type,
+                 message_header.msg_size,
+                 message_header.seg_num);
+
+        // TODO: Read the rest of the message
+        break;
+    }
+
     Ok(())
 }
 
@@ -120,33 +137,11 @@ struct TapeHeader {
     b5: [u8; 31552],
 }
 
-#[derive(Debug)]
-enum MessageType {
-    /// Type for "Build 10", corresponding to an Archive II header filename prefix of "AR2V".
-    Type31,
-}
-
 #[repr(C)]
 #[derive(Serialize, Deserialize, Debug)]
 struct FileHeader {
     title: Title,
     packet: Packet,
-}
-
-impl FileHeader {
-    /// Determine this file's expected message type based on the version in the Archive II header's
-    /// filename.
-    fn message_type(&self) -> Result<Option<MessageType>> {
-        let filename = from_utf8(&self.title.filename)?.to_string();
-
-        let message_type = if filename.starts_with("AR2V") {
-            Some(MessageType::Type31)
-        } else {
-            None
-        };
-
-        Ok(message_type)
-    }
 }
 
 #[repr(C)]
