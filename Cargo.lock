@@ -871,6 +871,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "dbscan"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9654109c8a07c62a71b9d443e72dde6c6e1364a9e8654126be122c58919d8a85"
+
+[[package]]
 name = "deflate"
 version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1823,6 +1829,7 @@ name = "nexrad-volumetric-renderer"
 version = "0.0.1"
 dependencies = [
  "chrono",
+ "dbscan",
  "kiss3d",
  "nexrad",
  "tokio",
