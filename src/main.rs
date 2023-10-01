@@ -22,7 +22,9 @@ async fn main() {
 }
 
 const EARTH_RADIUS_M: f64 = 6356752.3;
-const RENDER_RATIO_TO_M: f64 = 0.001; // every 1.0 in the render == 1.0/RENDER_RATIO_TO_M meters
+const NEXRAD_RADAR_RANGE_M: f64 = 230000.0;
+
+const RENDER_RATIO_TO_M: f64 = 0.00001; // every 1.0 in the render == 1.0/RENDER_RATIO_TO_M meters
 
 async fn execute(site: &str, date: &NaiveDate, time: &NaiveTime) -> Result<()> {
     let mut window = Window::new("NEXRAD Volumetric Renderer");
@@ -35,6 +37,10 @@ async fn execute(site: &str, date: &NaiveDate, time: &NaiveTime) -> Result<()> {
     let mut cube = window.add_cube(1.0, 1.0, 1.0);
     cube.set_color(1.0, 0.0, 0.0);
     cube.set_local_translation(Translation3::new(0.0, 1.0, 0.0));
+
+    let nexrad_radar_diameter_scaled = (NEXRAD_RADAR_RANGE_M * RENDER_RATIO_TO_M) as f32;
+    let mut range_indicator = window.add_cylinder(nexrad_radar_diameter_scaled, 0.1);
+    range_indicator.set_color(1.0, 0.0, 0.0);
 
     window.set_light(Light::Absolute(Point3::new(0.0, 100.0, 0.0)));
 
