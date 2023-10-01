@@ -1,4 +1,7 @@
 use chrono::{NaiveDate, NaiveTime};
+use kiss3d::light::Light;
+use kiss3d::nalgebra::{UnitQuaternion, Vector3};
+use kiss3d::window::Window;
 use nexrad::decode::decode_file;
 use nexrad::decompress::decompress_file;
 use nexrad::download::{download_file, list_files};
@@ -19,6 +22,21 @@ async fn main() {
 }
 
 async fn execute(site: &str, date: &NaiveDate, time: &NaiveTime) -> Result<()> {
+    let mut window = Window::new("NEXRAD Volumetric Renderer");
+
+    let mut cube = window.add_cube(1.0, 1.0, 1.0);
+    cube.set_color(1.0, 0.0, 0.0);
+
+    window.set_light(Light::StickToCamera);
+
+    let rotation = UnitQuaternion::from_axis_angle(&Vector3::y_axis(), 0.014);
+
+    while window.render() {
+        cube.prepend_to_local_rotation(&rotation);
+    }
+
+    return Ok(());
+
     let files = list_files(site, date).await?;
     if files.is_empty() {
         panic!("No files found for date/site");
