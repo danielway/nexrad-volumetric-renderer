@@ -1,18 +1,15 @@
 use chrono::{NaiveDate, NaiveTime};
-use kiss3d::light::Light;
-use kiss3d::nalgebra::{Point3, Translation3, Vector3};
-use kiss3d::ncollide3d::transformation::convex_hull;
-use kiss3d::resource::Mesh;
-use kiss3d::window::Window;
 use nexrad::decode::decode_file;
 use nexrad::decompress::decompress_file;
 use nexrad::download::{download_file, list_files};
 use nexrad::file::FileMetadata;
 use nexrad::model::DataFile;
-use std::cell::RefCell;
 use std::f32::consts::PI;
-use std::iter::zip;
-use std::rc::Rc;
+use three_d::{
+    degrees, vec3, Camera, ClearState, ColorMaterial, CpuMaterial, CpuMesh, DirectionalLight,
+    FrameOutput, Gm, InstancedMesh, Mat4, Mesh, OrbitControl, PhysicalMaterial, PointCloud,
+    Positions, Srgba, Vec3, Vector3, Window, WindowSettings,
+};
 
 use crate::result::Result;
 
@@ -39,18 +36,79 @@ const BELOW_THRESHOLD: f32 = 999.0;
 const MOMENT_FOLDED: f32 = 998.0;
 
 async fn execute(site: &str, date: &NaiveDate, time: &NaiveTime) -> Result<()> {
-    let mut window = Window::new("NEXRAD Volumetric Renderer");
+    let window = Window::new(WindowSettings {
+        title: "NEXRAD Volumetric Renderer".to_string(),
+        max_size: Some((1280, 720)),
+        ..Default::default()
+    })?;
 
+    let context = window.gl();
+
+    // Camera
+    let mut camera = Camera::new_perspective(
+        window.viewport(),
+        vec3(0.0, 2.0, 5.0),
+        vec3(0.0, 0.0, -5.0),
+        vec3(0.0, 1.0, 0.0),
+        degrees(45.0),
+        0.1,
+        1000.0,
+    );
+
+    // Control
+    let mut control = OrbitControl::new(Vec3::new(0.0, 0.0, 0.0), 0.01, 5.0);
+
+    // Earth
     let earth_scaled_radius = EARTH_RADIUS_M * RENDER_RATIO_TO_M;
-    let mut earth = window.add_sphere(earth_scaled_radius);
-    earth.set_local_translation(Translation3::new(0.0, -earth_scaled_radius, 0.0));
-    earth.set_color(82.0 / 255.0, 143.0 / 255.0, 79.0 / 255.0);
+    let mut earth = Gm::new(
+        Mesh::new(&context, &CpuMesh::sphere(100)),
+        PhysicalMaterial::new_opaque(
+            &context,
+            &CpuMaterial {
+                albedo: Srgba {
+                    r: 40,
+                    g: 100,
+                    b: 40,
+                    a: 255,
+                },
+                ..Default::default()
+            },
+        ),
+    );
+    earth.set_transformation(
+        Mat4::from_translation(vec3(0.0, -earth_scaled_radius, 0.0))
+            * Mat4::from_scale(earth_scaled_radius),
+    );
 
+    // Radar indicator
     let nexrad_radar_diameter_scaled = NEXRAD_RADAR_RANGE_M * RENDER_RATIO_TO_M;
-    let mut range_indicator = window.add_cylinder(nexrad_radar_diameter_scaled, 0.01);
-    range_indicator.set_color(1.0, 1.0, 1.0);
+    let mut radar_indicator = Gm::new(
+        Mesh::new(&context, &CpuMesh::cylinder(100)),
+        PhysicalMaterial::new_opaque(
+            &context,
+            &CpuMaterial {
+                albedo: Srgba {
+                    r: 255,
+                    g: 0,
+                    b: 0,
+                    a: 255,
+                },
+                ..Default::default()
+            },
+        ),
+    );
+    radar_indicator.set_transformation(
+        Mat4::from_translation(vec3(0.0, 0.0, 0.0))
+            * Mat4::from_angle_z(degrees(90.0))
+            * Mat4::from_nonuniform_scale(
+                0.01,
+                nexrad_radar_diameter_scaled,
+                nexrad_radar_diameter_scaled,
+            ),
+    );
 
-    window.set_light(Light::Absolute(Point3::new(0.0, 100.0, 0.0)));
+    // Sun
+    let sun = DirectionalLight::new(&context, 1.0, Srgba::WHITE, &vec3(0.0, -1.0, -1.0));
 
     let files = list_files(site, date).await?;
     if files.is_empty() {
@@ -82,66 +140,67 @@ async fn execute(site: &str, date: &NaiveDate, time: &NaiveTime) -> Result<()> {
         decoded.elevation_scans().len()
     );
 
-    let points = get_points(&decoded, 0.0);
+    let points = get_points(&decoded, 0.5);
 
     // Make the dataset smaller
-    let points = points.iter().step_by(100).collect::<Vec<_>>();
+    let points = points.iter().step_by(10).collect::<Vec<_>>();
     println!("Scan contains {} points.", points.len());
 
-    println!("Clustering points...");
-    let ps = points
-        .iter()
-        .map(|(p, _)| p.coords.as_slice().to_vec())
-        .collect::<Vec<_>>();
-    let point_classifications = dbscan::cluster(0.01, 10, &ps);
-    let points_with_classifications = zip(points, point_classifications);
+    let mut point_cloud = PointCloud::default();
+    point_cloud.positions = Positions::F32(
+        points
+            .iter()
+            .map(|(p, _)| vec3(p.x, p.y, p.z))
+            .collect::<Vec<_>>(),
+    );
+    point_cloud.colors = Some(
+        points
+            .iter()
+            .map(|(_, c)| Srgba::new(c.0, c.1, c.2, 255))
+            .collect::<Vec<_>>(),
+    );
 
-    println!("Grouping points and rendering edges/noise...");
-    let mut clusters = std::collections::HashMap::new();
-    for (point, classification) in points_with_classifications {
-        let (p, color) = point;
-        match classification {
-            dbscan::Classification::Core(id) => {
-                clusters.entry(id).or_insert(Vec::new()).push(point);
-            }
-            _ => {
-                let mut cube = window.add_cube(0.01, 0.01, 0.01);
+    let mut point_mesh = CpuMesh::sphere(4);
+    point_mesh.transform(&Mat4::from_scale(0.002)).unwrap();
 
-                cube.set_color(
-                    color.0 as f32 / 255.0,
-                    color.1 as f32 / 255.0,
-                    color.2 as f32 / 255.0,
-                );
+    let point_cloud_gm = Gm {
+        geometry: InstancedMesh::new(&context, &point_cloud.into(), &point_mesh),
+        material: ColorMaterial::default(),
+    };
 
-                cube.set_local_translation(Translation3::new(
-                    p.coords[0],
-                    p.coords[1],
-                    p.coords[2],
-                ));
-            }
-        }
-    }
-    println!("Found {} clusters.", clusters.len());
+    let mut angle_deg = 0.0;
+    window.render_loop(move |mut frame_input| {
+        camera.set_viewport(frame_input.viewport);
+        control.handle_events(&mut camera, &mut frame_input.events);
 
-    println!("Rendering clusters...");
-    for (_, points) in clusters {
-        println!("  Drawing cluster with {} points", points.len());
-        if points.len() < 3 {
-            continue;
+        angle_deg += 0.2;
+        if angle_deg > 360.0 {
+            angle_deg = 0.0;
         }
 
-        let points = points.iter().map(|(p, _)| *p).collect::<Vec<_>>();
-        let hull = convex_hull(points.as_slice());
-
-        let mut mesh = window.add_mesh(
-            Rc::new(RefCell::new(Mesh::from_trimesh(hull, false))),
-            Vector3::new(1.0, 1.0, 1.0),
+        let angle = angle_deg as f32 * (PI / 180.0);
+        let position_x = angle.cos() * NEXRAD_RADAR_RANGE_M * RENDER_RATIO_TO_M * 1.5;
+        let position_y = angle.sin() * NEXRAD_RADAR_RANGE_M * RENDER_RATIO_TO_M * 1.5;
+        camera.set_view(
+            Vec3::new(position_x, 2.0, position_y),
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(0.0, 1.0, 0.0),
         );
 
-        mesh.set_color(0.0, 0.0, 1.0);
-    }
+        frame_input
+            .screen()
+            .clear(ClearState::color_and_depth(0.0, 0.0, 0.0, 1.0, 1.0))
+            .render(
+                &camera,
+                point_cloud_gm
+                    .into_iter()
+                    .chain(&earth)
+                    .chain(&radar_indicator),
+                &[&sun],
+            );
 
-    while window.render() {}
+        FrameOutput::default()
+    });
 
     Ok(())
 }
@@ -167,7 +226,7 @@ fn nearest_file<'a>(files: &'a Vec<FileMetadata>, time: &NaiveTime) -> &'a FileM
     nearest
 }
 
-fn get_points(data: &DataFile, threshold: f32) -> Vec<(Point3<f32>, (i32, i32, i32))> {
+fn get_points(data: &DataFile, threshold: f32) -> Vec<(Vector3<f32>, (u8, u8, u8))> {
     let mut points = Vec::new();
 
     for (elevation, radials) in data.elevation_scans() {
@@ -256,7 +315,7 @@ fn get_points(data: &DataFile, threshold: f32) -> Vec<(Point3<f32>, (i32, i32, i
                         (0xff, 0xff, 0xFF)
                     };
 
-                    points.push((Point3::new(position_x, position_z, position_y), color));
+                    points.push((Vector3::new(position_x, position_z, position_y), color));
                 }
 
                 distance_m += data_moment.data().data_moment_range_sample_interval() as f32;
