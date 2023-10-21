@@ -6,9 +6,9 @@ use nexrad::file::FileMetadata;
 use nexrad::model::DataFile;
 use std::f32::consts::PI;
 use three_d::{
-    degrees, vec3, Camera, ClearState, ColorMaterial, CpuMaterial, CpuMesh, DirectionalLight,
-    FrameOutput, Gm, InstancedMesh, Mat4, Mesh, OrbitControl, PhysicalMaterial, PointCloud,
-    Positions, Srgba, Vec3, Vector3, Window, WindowSettings,
+    degrees, vec3, Camera, ClearState, ColorMaterial, Context, CpuMaterial, CpuMesh,
+    DirectionalLight, FrameOutput, Gm, InstancedMesh, Mat4, Mesh, OrbitControl, PhysicalMaterial,
+    PointCloud, Positions, Srgba, Vec3, Vector3, Window, WindowSettings,
 };
 
 use crate::result::Result;
@@ -43,73 +43,44 @@ async fn execute(site: &str, date: &NaiveDate, time: &NaiveTime) -> Result<()> {
     })?;
 
     let context = window.gl();
+    let earth = get_earth_object(&context);
+    let radar_indicator = get_radar_indicator_object(&context);
+    let sun = get_sun_light(&context);
 
-    // Camera
-    let mut camera = Camera::new_perspective(
-        window.viewport(),
-        vec3(0.0, 2.0, 5.0),
-        vec3(0.0, 0.0, -5.0),
-        vec3(0.0, 1.0, 0.0),
-        degrees(45.0),
-        0.1,
-        1000.0,
-    );
+    let decoded = get_data(site, date, time).await?;
+    let points = get_points(&decoded, 0.5);
 
-    // Control
-    let mut control = OrbitControl::new(Vec3::new(0.0, 0.0, 0.0), 0.01, 5.0);
+    // Sample dataset to speed processing
+    let sampled_points = points.iter().step_by(10).collect::<Vec<_>>();
+    println!("Scan contains {} points.", sampled_points.len());
 
-    // Earth
-    let earth_scaled_radius = EARTH_RADIUS_M * RENDER_RATIO_TO_M;
-    let mut earth = Gm::new(
-        Mesh::new(&context, &CpuMesh::sphere(100)),
-        PhysicalMaterial::new_opaque(
-            &context,
-            &CpuMaterial {
-                albedo: Srgba {
-                    r: 40,
-                    g: 100,
-                    b: 40,
-                    a: 255,
-                },
-                ..Default::default()
-            },
-        ),
-    );
-    earth.set_transformation(
-        Mat4::from_translation(vec3(0.0, -earth_scaled_radius, 0.0))
-            * Mat4::from_scale(earth_scaled_radius),
-    );
+    let point_cloud_gm = get_point_cloud_object(&context, sampled_points);
 
-    // Radar indicator
-    let nexrad_radar_diameter_scaled = NEXRAD_RADAR_RANGE_M * RENDER_RATIO_TO_M;
-    let mut radar_indicator = Gm::new(
-        Mesh::new(&context, &CpuMesh::cylinder(100)),
-        PhysicalMaterial::new_opaque(
-            &context,
-            &CpuMaterial {
-                albedo: Srgba {
-                    r: 255,
-                    g: 0,
-                    b: 0,
-                    a: 255,
-                },
-                ..Default::default()
-            },
-        ),
-    );
-    radar_indicator.set_transformation(
-        Mat4::from_translation(vec3(0.0, 0.0, 0.0))
-            * Mat4::from_angle_z(degrees(90.0))
-            * Mat4::from_nonuniform_scale(
-                0.01,
-                nexrad_radar_diameter_scaled,
-                nexrad_radar_diameter_scaled,
-            ),
-    );
+    let (mut camera, mut control) = get_camera_and_control(&window);
 
-    // Sun
-    let sun = DirectionalLight::new(&context, 1.0, Srgba::WHITE, &vec3(0.0, -1.0, -1.0));
+    let mut angle_deg = 0.0;
+    window.render_loop(move |mut frame_input| {
+        camera.set_viewport(frame_input.viewport);
+        control.handle_events(&mut camera, &mut frame_input.events);
+        update_camera(&mut angle_deg, &mut camera);
 
+        let objects = point_cloud_gm
+            .into_iter()
+            .chain(&earth)
+            .chain(&radar_indicator);
+
+        frame_input
+            .screen()
+            .clear(ClearState::color_and_depth(0.0, 0.0, 0.0, 1.0, 1.0))
+            .render(&camera, objects, &[&sun]);
+
+        FrameOutput::default()
+    });
+
+    Ok(())
+}
+
+async fn get_data(site: &str, date: &NaiveDate, time: &NaiveTime) -> Result<DataFile> {
     let files = list_files(site, date).await?;
     if files.is_empty() {
         panic!("No files found for date/site");
@@ -140,69 +111,7 @@ async fn execute(site: &str, date: &NaiveDate, time: &NaiveTime) -> Result<()> {
         decoded.elevation_scans().len()
     );
 
-    let points = get_points(&decoded, 0.5);
-
-    // Make the dataset smaller
-    let points = points.iter().step_by(10).collect::<Vec<_>>();
-    println!("Scan contains {} points.", points.len());
-
-    let mut point_cloud = PointCloud::default();
-    point_cloud.positions = Positions::F32(
-        points
-            .iter()
-            .map(|(p, _)| vec3(p.x, p.y, p.z))
-            .collect::<Vec<_>>(),
-    );
-    point_cloud.colors = Some(
-        points
-            .iter()
-            .map(|(_, c)| Srgba::new(c.0, c.1, c.2, 255))
-            .collect::<Vec<_>>(),
-    );
-
-    let mut point_mesh = CpuMesh::sphere(4);
-    point_mesh.transform(&Mat4::from_scale(0.002)).unwrap();
-
-    let point_cloud_gm = Gm {
-        geometry: InstancedMesh::new(&context, &point_cloud.into(), &point_mesh),
-        material: ColorMaterial::default(),
-    };
-
-    let mut angle_deg = 0.0;
-    window.render_loop(move |mut frame_input| {
-        camera.set_viewport(frame_input.viewport);
-        control.handle_events(&mut camera, &mut frame_input.events);
-
-        angle_deg += 0.2;
-        if angle_deg > 360.0 {
-            angle_deg = 0.0;
-        }
-
-        let angle = angle_deg as f32 * (PI / 180.0);
-        let position_x = angle.cos() * NEXRAD_RADAR_RANGE_M * RENDER_RATIO_TO_M * 1.5;
-        let position_y = angle.sin() * NEXRAD_RADAR_RANGE_M * RENDER_RATIO_TO_M * 1.5;
-        camera.set_view(
-            Vec3::new(position_x, 2.0, position_y),
-            Vec3::new(0.0, 0.0, 0.0),
-            Vec3::new(0.0, 1.0, 0.0),
-        );
-
-        frame_input
-            .screen()
-            .clear(ClearState::color_and_depth(0.0, 0.0, 0.0, 1.0, 1.0))
-            .render(
-                &camera,
-                point_cloud_gm
-                    .into_iter()
-                    .chain(&earth)
-                    .chain(&radar_indicator),
-                &[&sun],
-            );
-
-        FrameOutput::default()
-    });
-
-    Ok(())
+    Ok(decoded)
 }
 
 fn nearest_file<'a>(files: &'a Vec<FileMetadata>, time: &NaiveTime) -> &'a FileMetadata {
@@ -325,4 +234,128 @@ fn get_points(data: &DataFile, threshold: f32) -> Vec<(Vector3<f32>, (u8, u8, u8
     }
 
     points
+}
+
+fn get_camera_and_control(window: &Window) -> (Camera, OrbitControl) {
+    let camera = Camera::new_perspective(
+        window.viewport(),
+        vec3(0.0, 2.0, 5.0),
+        vec3(0.0, 0.0, -5.0),
+        vec3(0.0, 1.0, 0.0),
+        degrees(45.0),
+        0.1,
+        1000.0,
+    );
+
+    let control = OrbitControl::new(Vec3::new(0.0, 0.0, 0.0), 0.01, 5.0);
+
+    (camera, control)
+}
+
+fn get_sun_light(context: &Context) -> DirectionalLight {
+    DirectionalLight::new(context, 1.0, Srgba::WHITE, &vec3(0.0, -1.0, -1.0))
+}
+
+fn get_earth_object(context: &Context) -> Gm<Mesh, PhysicalMaterial> {
+    let earth_scaled_radius = EARTH_RADIUS_M * RENDER_RATIO_TO_M;
+
+    let mut earth = Gm::new(
+        Mesh::new(context, &CpuMesh::sphere(100)),
+        PhysicalMaterial::new_opaque(
+            context,
+            &CpuMaterial {
+                albedo: Srgba {
+                    r: 40,
+                    g: 100,
+                    b: 40,
+                    a: 255,
+                },
+                ..Default::default()
+            },
+        ),
+    );
+
+    earth.set_transformation(
+        Mat4::from_translation(vec3(0.0, -earth_scaled_radius, 0.0))
+            * Mat4::from_scale(earth_scaled_radius),
+    );
+
+    earth
+}
+
+fn get_radar_indicator_object(context: &Context) -> Gm<Mesh, PhysicalMaterial> {
+    let nexrad_radar_diameter_scaled = NEXRAD_RADAR_RANGE_M * RENDER_RATIO_TO_M;
+
+    let mut radar_indicator = Gm::new(
+        Mesh::new(context, &CpuMesh::cylinder(100)),
+        PhysicalMaterial::new_opaque(
+            context,
+            &CpuMaterial {
+                albedo: Srgba {
+                    r: 255,
+                    g: 0,
+                    b: 0,
+                    a: 255,
+                },
+                ..Default::default()
+            },
+        ),
+    );
+
+    radar_indicator.set_transformation(
+        Mat4::from_translation(vec3(0.0, 0.0, 0.0))
+            * Mat4::from_angle_z(degrees(90.0))
+            * Mat4::from_nonuniform_scale(
+                0.01,
+                nexrad_radar_diameter_scaled,
+                nexrad_radar_diameter_scaled,
+            ),
+    );
+
+    radar_indicator
+}
+
+fn get_point_cloud_object(
+    context: &Context,
+    points: Vec<&(Vector3<f32>, (u8, u8, u8))>,
+) -> Gm<InstancedMesh, ColorMaterial> {
+    let mut point_cloud = PointCloud::default();
+    point_cloud.positions = Positions::F32(
+        points
+            .iter()
+            .map(|(p, _)| vec3(p.x, p.y, p.z))
+            .collect::<Vec<_>>(),
+    );
+    point_cloud.colors = Some(
+        points
+            .iter()
+            .map(|(_, c)| Srgba::new(c.0, c.1, c.2, 255))
+            .collect::<Vec<_>>(),
+    );
+
+    let mut point_mesh = CpuMesh::sphere(4);
+    point_mesh.transform(&Mat4::from_scale(0.002)).unwrap();
+
+    let point_cloud_gm = Gm {
+        geometry: InstancedMesh::new(&context, &point_cloud.into(), &point_mesh),
+        material: ColorMaterial::default(),
+    };
+
+    point_cloud_gm
+}
+
+fn update_camera(angle_deg: &mut f64, camera: &mut Camera) {
+    *angle_deg += 0.2;
+    if *angle_deg > 360.0 {
+        *angle_deg = 0.0;
+    }
+
+    let angle = *angle_deg as f32 * (PI / 180.0);
+    let position_x = angle.cos() * NEXRAD_RADAR_RANGE_M * RENDER_RATIO_TO_M * 1.5;
+    let position_y = angle.sin() * NEXRAD_RADAR_RANGE_M * RENDER_RATIO_TO_M * 1.5;
+    camera.set_view(
+        Vec3::new(position_x, 2.0, position_y),
+        Vec3::new(0.0, 0.0, 0.0),
+        Vec3::new(0.0, 1.0, 0.0),
+    );
 }
