@@ -1,3 +1,5 @@
+use crate::ClusteringMode::{DBSCAN, KNN};
+use crate::PointWeightMode::{Density, Hybrid, ReturnStrength};
 use chrono::{NaiveDate, NaiveTime};
 use nexrad::decode::decode_file;
 use nexrad::decompress::decompress_file;
@@ -8,7 +10,7 @@ use std::f32::consts::PI;
 use three_d::{
     degrees, vec3, Camera, ClearState, ColorMaterial, Context, CpuMaterial, CpuMesh,
     DirectionalLight, FrameOutput, Gm, InstancedMesh, Mat4, Mesh, OrbitControl, PhysicalMaterial,
-    PointCloud, Positions, Srgba, Vec3, Vector3, Window, WindowSettings,
+    PointCloud, Positions, Srgba, Vec3, Vector3, Viewport, Window, WindowSettings, GUI,
 };
 
 use crate::result::Result;
@@ -35,6 +37,21 @@ const RENDER_RATIO_TO_M: f32 = 0.00001; // every 1.0 in the render == 1.0/RENDER
 const BELOW_THRESHOLD: f32 = 999.0;
 const MOMENT_FOLDED: f32 = 998.0;
 
+const CONTROL_PANEL_WIDTH: f32 = 200.0;
+
+#[derive(Eq, PartialEq)]
+enum PointWeightMode {
+    ReturnStrength,
+    Density,
+    Hybrid,
+}
+
+#[derive(Eq, PartialEq)]
+enum ClusteringMode {
+    KNN,
+    DBSCAN,
+}
+
 async fn execute(site: &str, date: &NaiveDate, time: &NaiveTime) -> Result<()> {
     let window = Window::new(WindowSettings {
         title: "NEXRAD Volumetric Renderer".to_string(),
@@ -51,16 +68,32 @@ async fn execute(site: &str, date: &NaiveDate, time: &NaiveTime) -> Result<()> {
     let points = get_points(&decoded, 0.5);
 
     // Sample dataset to speed processing
-    let sampled_points = points.iter().step_by(10).collect::<Vec<_>>();
+    let sampled_points = points.iter().step_by(100).collect::<Vec<_>>();
     println!("Scan contains {} points.", sampled_points.len());
 
     let point_cloud_gm = get_point_cloud_object(&context, sampled_points);
 
     let (mut camera, mut control) = get_camera_and_control(&window);
+    let mut gui = GUI::new(&context);
 
     let mut angle_deg = 0.0;
+    let mut weight_mode = ReturnStrength;
+    let mut site = site.to_string();
+    let mut date = date.to_string();
+    let mut time = time.to_string();
+    let mut data_sampling = "100".to_string();
+    let mut clustering_mode = DBSCAN;
+    let mut clustering_threshold = "10.0".to_string();
+
     window.render_loop(move |mut frame_input| {
-        camera.set_viewport(frame_input.viewport);
+        let scaled_width = CONTROL_PANEL_WIDTH * frame_input.device_pixel_ratio;
+        camera.set_viewport(Viewport {
+            x: scaled_width as i32,
+            y: 0,
+            width: frame_input.viewport.width - scaled_width as u32,
+            height: frame_input.viewport.height,
+        });
+
         control.handle_events(&mut camera, &mut frame_input.events);
         update_camera(&mut angle_deg, &mut camera);
 
@@ -69,10 +102,64 @@ async fn execute(site: &str, date: &NaiveDate, time: &NaiveTime) -> Result<()> {
             .chain(&earth)
             .chain(&radar_indicator);
 
+        gui.update(
+            &mut frame_input.events,
+            frame_input.accumulated_time,
+            frame_input.viewport,
+            frame_input.device_pixel_ratio,
+            |gui_context| {
+                use three_d::egui::*;
+                SidePanel::left("side_panel")
+                    .exact_width(CONTROL_PANEL_WIDTH)
+                    .resizable(false)
+                    .show(gui_context, |ui| {
+                        ui.add_space(10.0);
+
+                        ui.heading("Control Panel");
+
+                        ui.add_space(10.0);
+
+                        ui.label("Site");
+                        ui.text_edit_singleline(&mut site);
+
+                        ui.label("Date");
+                        ui.text_edit_singleline(&mut date);
+
+                        ui.label("Time");
+                        ui.text_edit_singleline(&mut time);
+
+                        ui.add_space(10.0);
+
+                        ui.label("Data Sampling");
+                        ui.text_edit_singleline(&mut data_sampling);
+
+                        ui.add_space(10.0);
+
+                        ui.label("Point Weight Mode");
+                        ui.radio_value(&mut weight_mode, ReturnStrength, "Return");
+                        ui.radio_value(&mut weight_mode, Density, "Density");
+                        ui.radio_value(&mut weight_mode, Hybrid, "Hybrid");
+
+                        ui.add_space(10.0);
+
+                        ui.label("Clustering Mode");
+                        ui.radio_value(&mut clustering_mode, KNN, "KNN");
+                        ui.radio_value(&mut clustering_mode, DBSCAN, "DBSCAN");
+
+                        ui.add_space(10.0);
+
+                        ui.label("Clustering Threshold");
+                        ui.text_edit_singleline(&mut clustering_threshold);
+                    });
+            },
+        );
+
         frame_input
             .screen()
             .clear(ClearState::color_and_depth(0.0, 0.0, 0.0, 1.0, 1.0))
             .render(&camera, objects, &[&sun]);
+
+        frame_input.screen().write(|| gui.render());
 
         FrameOutput::default()
     });
