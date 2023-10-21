@@ -1,4 +1,4 @@
-use crate::RENDER_RATIO_TO_M;
+use crate::{ColoredPoint, RENDER_RATIO_TO_M};
 use three_d::{
     degrees, vec3, ColorMaterial, Context, CpuMaterial, CpuMesh, Gm, InstancedMesh, Mat4, Mesh,
     PhysicalMaterial, PointCloud, Positions, Srgba, Vector3,
@@ -68,7 +68,7 @@ pub fn get_radar_indicator_object(context: &Context) -> Gm<Mesh, PhysicalMateria
 
 pub fn get_point_cloud_object(
     context: &Context,
-    points: Vec<&(Vector3<f32>, (u8, u8, u8))>,
+    points: Vec<ColoredPoint>,
 ) -> Gm<InstancedMesh, ColorMaterial> {
     let mut point_cloud = PointCloud::default();
     point_cloud.positions = Positions::F32(

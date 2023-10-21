@@ -1,11 +1,11 @@
 use crate::param::ClusteringMode::{DBSCAN, KNN};
+use crate::param::InteractionMode::{ManualOrbit, Orbit};
 use crate::param::Parameters;
 use crate::param::PointWeightMode::{Density, Hybrid, ReturnStrength};
 use crate::CONTROL_PANEL_WIDTH;
 use chrono::{NaiveDate, NaiveTime};
 use std::str::FromStr;
 use three_d::egui::Context;
-use crate::param::InteractionMode::{ManualOrbit, Orbit};
 
 pub fn render_gui(gui_context: &Context, params: &mut Parameters) {
     use three_d::egui::*;

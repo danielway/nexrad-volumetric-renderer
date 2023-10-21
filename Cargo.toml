@@ -9,3 +9,4 @@ tokio = { version = "1", features = ["full"] }
 chrono = "0.4"
 dbscan = "0.3.1"
 three-d = { version = "0.16", features=["egui-gui"] }
+hsl = "0.1.1"

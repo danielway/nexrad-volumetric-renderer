@@ -1,5 +1,5 @@
 use crate::result::Result;
-use crate::RENDER_RATIO_TO_M;
+use crate::{ColoredPoint, RENDER_RATIO_TO_M};
 use chrono::{NaiveDate, NaiveTime};
 use nexrad::decode::decode_file;
 use nexrad::decompress::decompress_file;
@@ -67,7 +67,7 @@ pub fn nearest_file<'a>(files: &'a Vec<FileMetadata>, time: &NaiveTime) -> &'a F
     nearest
 }
 
-pub fn get_points(data: &DataFile, threshold: f32) -> Vec<(Vector3<f32>, (u8, u8, u8))> {
+pub fn get_points(data: &DataFile, threshold: f32) -> Vec<ColoredPoint> {
     let mut points = Vec::new();
 
     for (elevation, radials) in data.elevation_scans() {
