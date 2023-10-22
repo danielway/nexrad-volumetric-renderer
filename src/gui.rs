@@ -2,12 +2,10 @@ use crate::param::ClusteringMode::{DBSCAN, KNN};
 use crate::param::InteractionMode::{ManualOrbit, Orbit};
 use crate::param::Parameters;
 use crate::param::PointColorMode::{Density, Hybrid, Raw};
-use crate::processing::do_fetch_and_process;
 use crate::state::State;
 use crate::CONTROL_PANEL_WIDTH;
 use chrono::{NaiveDate, NaiveTime};
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
 use three_d::egui::Context;
 
 pub struct GuiState {
@@ -17,20 +15,16 @@ pub struct GuiState {
     pub clustering_threshold_string: String,
 }
 
-pub fn render_gui(
+pub fn render_gui<F>(
     gui_context: &Context,
-    state: &Arc<Mutex<State>>,
+    state: &State,
     gui_state: &mut GuiState,
     params: &mut Parameters,
-) -> bool {
+    mut reprocess: F,
+) where
+    F: FnMut(),
+{
     use three_d::egui::*;
-
-    let mut should_rerender = false;
-
-    let processing = {
-        let state = state.lock().unwrap();
-        state.processing
-    };
 
     SidePanel::left("side_panel")
         .exact_width(CONTROL_PANEL_WIDTH)
@@ -40,7 +34,7 @@ pub fn render_gui(
 
             ui.heading("Control Panel");
 
-            if processing {
+            if state.processing {
                 ui.colored_label(Color32::from_rgb(255, 0, 0), "Processing data...");
             }
 
@@ -77,9 +71,7 @@ pub fn render_gui(
 
             let fetch_button = ui.button("Fetch");
             if fetch_button.clicked() {
-                do_fetch_and_process(params.site.clone(), params.date, params.time, state.clone());
-
-                should_rerender = true;
+                reprocess();
             }
 
             ui.add_space(10.0);
@@ -133,6 +125,4 @@ pub fn render_gui(
                 }
             }
         });
-
-    should_rerender
 }

@@ -1,24 +1,25 @@
 use chrono::{NaiveDate, NaiveTime};
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Copy, Clone)]
 pub enum InteractionMode {
     Orbit,
     ManualOrbit,
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Copy, Clone)]
 pub enum PointColorMode {
     Raw,
     Density,
     Hybrid,
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Copy, Clone)]
 pub enum ClusteringMode {
     KNN,
     DBSCAN,
 }
 
+#[derive(Clone)]
 pub struct Parameters {
     pub site: String,
     pub date: NaiveDate,

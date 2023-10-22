@@ -108,12 +108,24 @@ async fn execute(site: &str, date: &NaiveDate, time: &NaiveTime) -> Result<()> {
             frame_input.viewport,
             frame_input.device_pixel_ratio,
             |gui_context| {
-                let should_rerender =
-                    render_gui(gui_context, &state, &mut gui_state, &mut parameters);
+                let current_state = state.lock().unwrap();
+                let prior_params = parameters.clone();
+                render_gui(
+                    gui_context,
+                    &current_state,
+                    &mut gui_state,
+                    &mut parameters,
+                    || {
+                        do_fetch_and_process(
+                            prior_params.site.clone(),
+                            prior_params.date,
+                            prior_params.time,
+                            state.clone(),
+                        );
 
-                if should_rerender {
-                    point_cloud = None;
-                }
+                        point_cloud = None;
+                    },
+                );
             },
         );
 
