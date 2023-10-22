@@ -6,10 +6,13 @@ use chrono::{NaiveDate, NaiveTime};
 use dbscan::Classification;
 use hsl::HSL;
 use std::collections::HashMap;
-use three_d::{ClearState, FrameOutput, Vector3, Viewport, Window, WindowSettings, GUI};
+use std::sync::{Arc, Mutex};
+use three_d::{ClearState, FrameOutput, Vector3, Viewport, Window, WindowSettings, GUI, Gm, InstancedMesh, ColorMaterial};
+use crate::processing::do_fetch_and_process;
 
 use crate::result::Result;
 use crate::scene::{do_auto_orbit, get_camera_and_control, get_sun_light};
+use crate::state::State;
 
 mod data;
 mod gui;
@@ -17,6 +20,8 @@ mod object;
 mod param;
 mod result;
 mod scene;
+mod state;
+mod processing;
 
 const TARGET_SITE: &str = "KDMX";
 
@@ -44,61 +49,17 @@ async fn execute(site: &str, date: &NaiveDate, time: &NaiveTime) -> Result<()> {
     })?;
 
     let context = window.gl();
+
     let earth = get_earth_object(&context);
     let radar_indicator = get_radar_indicator_object(&context);
     let sun = get_sun_light(&context);
 
-    let decoded = get_data(site, date, time).await?;
-    let points = get_points(&decoded, 0.5);
+    let state = Arc::new(Mutex::new(State {
+        processing: false,
+        points: None,
+    }));
 
-    // Sample dataset to speed processing
-    let sampled_points = points.into_iter().step_by(1000).collect::<Vec<_>>();
-    println!("Scan contains {} points.", sampled_points.len());
-
-    // todo: we need to refetch / reprocess data when params change
-    // todo: we need to weight and rescale geometrically before clustering
-    // todo: in addition to result/density, weight should consider gate distance
-
-    println!("Clustering points...");
-    let (clusters, unclustered) = do_dbscan_clustering(sampled_points.clone());
-    println!(
-        "Found {} clusters with {} remaining unclustered points.",
-        clusters.len(),
-        unclustered.len()
-    );
-
-    // todo: coloring clusters to debug
-
-    let mut index = 0.0;
-    let mut get_color = || {
-        let phi = (1.0 + 5.0_f64.sqrt()) / 2.0;
-        let n = index * phi - (index * phi).floor();
-        let color = HSL {
-            h: n * 256.0,
-            s: 1.0,
-            l: 0.5,
-        };
-        index += 1.0;
-        return color.to_rgb();
-    };
-
-    println!("Recoloring clusters for debugging.");
-    let mut recolored_points = Vec::new();
-    let unclustered_color = (255, 255, 255);
-    for mut point in unclustered {
-        point.1 = unclustered_color;
-        recolored_points.push(point);
-    }
-    for cluster in clusters {
-        let cluster_color = get_color();
-        for mut point in cluster {
-            point.1 = cluster_color;
-            recolored_points.push(point);
-        }
-    }
-
-    println!("Creating point cloud from recolored points.");
-    let point_cloud_gm = get_point_cloud_object(&context, recolored_points);
+    do_fetch_and_process(site.to_string(), *date, *time, state.clone());
 
     let (mut camera, mut control) = get_camera_and_control(&window);
     let mut gui = GUI::new(&context);
@@ -116,12 +77,14 @@ async fn execute(site: &str, date: &NaiveDate, time: &NaiveTime) -> Result<()> {
         site: site.to_string(),
         date: *date,
         time: *time,
-        interaction_mode: InteractionMode::Orbit,
+        interaction_mode: InteractionMode::ManualOrbit,
         data_sampling: 100,
         clustering_mode: ClusteringMode::DBSCAN,
         point_color_mode: PointColorMode::Raw,
         clustering_threshold: 10.0,
     };
+
+    let mut point_cloud: Option<Gm<InstancedMesh, ColorMaterial>> = None;
 
     window.render_loop(move |mut frame_input| {
         let scaled_width = CONTROL_PANEL_WIDTH * frame_input.device_pixel_ratio;
@@ -138,29 +101,45 @@ async fn execute(site: &str, date: &NaiveDate, time: &NaiveTime) -> Result<()> {
             do_auto_orbit(&mut angle_deg, &mut camera);
         }
 
-        let objects = point_cloud_gm
-            .into_iter()
-            .chain(&earth)
-            .chain(&radar_indicator);
-
         gui.update(
             &mut frame_input.events,
             frame_input.accumulated_time,
             frame_input.viewport,
             frame_input.device_pixel_ratio,
             |gui_context| {
+                let mut state = state.lock().unwrap();
                 let (refetch_data, reprocess_data) = render_gui(
                     gui_context,
+                    &state,
                     &mut gui_state,
                     &mut parameters,
                 );
             },
         );
 
-        frame_input
-            .screen()
-            .clear(ClearState::color_and_depth(0.0, 0.0, 0.0, 1.0, 1.0))
-            .render(&camera, objects, &[&sun]);
+        let objects = earth.into_iter().chain(&radar_indicator);
+
+        if point_cloud.is_none() {
+            {
+                let mut state = state.lock().unwrap();
+                if !state.processing && state.points.is_some() {
+                    let points = state.points.take().unwrap();
+                    point_cloud = Some(get_point_cloud_object(&context, points));
+                }
+            }
+        }
+
+        if let Some(ref point_cloud) = point_cloud {
+            frame_input
+                .screen()
+                .clear(ClearState::color_and_depth(0.0, 0.0, 0.0, 1.0, 1.0))
+                .render(&camera, objects.chain(point_cloud), &[&sun]);
+        } else {
+            frame_input
+                .screen()
+                .clear(ClearState::color_and_depth(0.0, 0.0, 0.0, 1.0, 1.0))
+                .render(&camera, objects, &[&sun]);
+        };
 
         frame_input.screen().write(|| gui.render());
 
