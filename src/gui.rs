@@ -2,11 +2,13 @@ use crate::param::ClusteringMode::{DBSCAN, KNN};
 use crate::param::InteractionMode::{ManualOrbit, Orbit};
 use crate::param::Parameters;
 use crate::param::PointColorMode::{Density, Hybrid, Raw};
+use crate::processing::do_fetch_and_process;
+use crate::state::State;
 use crate::CONTROL_PANEL_WIDTH;
 use chrono::{NaiveDate, NaiveTime};
 use std::str::FromStr;
+use std::sync::{Arc, Mutex};
 use three_d::egui::Context;
-use crate::state::State;
 
 pub struct GuiState {
     pub date_string: String,
@@ -17,14 +19,18 @@ pub struct GuiState {
 
 pub fn render_gui(
     gui_context: &Context,
-    state: &State,
+    state: &Arc<Mutex<State>>,
     gui_state: &mut GuiState,
     params: &mut Parameters,
-) -> (bool, bool) {
+) -> bool {
     use three_d::egui::*;
 
-    let mut refetch_data = false;
-    let mut reprocess_data = false;
+    let mut should_rerender = false;
+
+    let processing = {
+        let state = state.lock().unwrap();
+        state.processing
+    };
 
     SidePanel::left("side_panel")
         .exact_width(CONTROL_PANEL_WIDTH)
@@ -34,7 +40,7 @@ pub fn render_gui(
 
             ui.heading("Control Panel");
 
-            if state.processing {
+            if processing {
                 ui.colored_label(Color32::from_rgb(255, 0, 0), "Processing data...");
             }
 
@@ -42,11 +48,7 @@ pub fn render_gui(
 
             ui.columns(2, |columns| {
                 columns[0].label("Site");
-
-                let site_input = columns[1].text_edit_singleline(&mut params.site);
-                if site_input.changed() {
-                    refetch_data = true;
-                }
+                columns[1].text_edit_singleline(&mut params.site);
             });
 
             ui.columns(2, |columns| {
@@ -55,10 +57,7 @@ pub fn render_gui(
                 let date_input = columns[1].text_edit_singleline(&mut gui_state.date_string);
                 if date_input.changed() {
                     match NaiveDate::from_str(&gui_state.date_string) {
-                        Ok(date) => {
-                            params.date = date;
-                            refetch_data = true;
-                        }
+                        Ok(date) => params.date = date,
                         Err(_) => {}
                     }
                 }
@@ -70,14 +69,18 @@ pub fn render_gui(
                 let time_input = columns[1].text_edit_singleline(&mut gui_state.time_string);
                 if time_input.changed() {
                     match NaiveTime::from_str(&gui_state.time_string) {
-                        Ok(time) => {
-                            params.time = time;
-                            refetch_data = true;
-                        },
+                        Ok(time) => params.time = time,
                         Err(_) => {}
                     }
                 }
             });
+
+            let fetch_button = ui.button("Fetch");
+            if fetch_button.clicked() {
+                do_fetch_and_process(params.site.clone(), params.date, params.time, state.clone());
+
+                should_rerender = true;
+            }
 
             ui.add_space(10.0);
 
@@ -96,10 +99,7 @@ pub fn render_gui(
             let data_sampling_input = ui.text_edit_singleline(&mut gui_state.data_sampling_string);
             if data_sampling_input.changed() {
                 match u16::from_str(&gui_state.data_sampling_string) {
-                    Ok(data_sampling) => {
-                        params.data_sampling = data_sampling;
-                        reprocess_data = true;
-                    },
+                    Ok(data_sampling) => params.data_sampling = data_sampling,
                     Err(_) => {}
                 }
             }
@@ -107,21 +107,9 @@ pub fn render_gui(
             ui.add_space(10.0);
 
             ui.label("Point Color Mode");
-
-            let raw_input = ui.radio_value(&mut params.point_color_mode, Raw, "Raw");
-            if raw_input.changed() {
-                reprocess_data = true;
-            }
-
-            let density_input = ui.radio_value(&mut params.point_color_mode, Density, "Density");
-            if density_input.changed() {
-                reprocess_data = true;
-            }
-
-            let hybrid_input = ui.radio_value(&mut params.point_color_mode, Hybrid, "Hybrid");
-            if hybrid_input.changed() {
-                reprocess_data = true;
-            }
+            ui.radio_value(&mut params.point_color_mode, Raw, "Raw");
+            ui.radio_value(&mut params.point_color_mode, Density, "Density");
+            ui.radio_value(&mut params.point_color_mode, Hybrid, "Hybrid");
 
             ui.add_space(10.0);
 
@@ -130,16 +118,8 @@ pub fn render_gui(
             ui.add_space(10.0);
 
             ui.label("Clustering Mode");
-
-            let knn_input = ui.radio_value(&mut params.clustering_mode, KNN, "KNN");
-            if knn_input.changed() {
-                reprocess_data = true;
-            }
-
-            let dbscan_input = ui.radio_value(&mut params.clustering_mode, DBSCAN, "DBSCAN");
-            if dbscan_input.changed() {
-                reprocess_data = true;
-            }
+            ui.radio_value(&mut params.clustering_mode, KNN, "KNN");
+            ui.radio_value(&mut params.clustering_mode, DBSCAN, "DBSCAN");
 
             ui.add_space(10.0);
 
@@ -148,16 +128,11 @@ pub fn render_gui(
                 ui.text_edit_singleline(&mut gui_state.clustering_threshold_string);
             if clustering_threshold_input.changed() {
                 match f32::from_str(&gui_state.clustering_threshold_string) {
-                    Ok(clustering_threshold) => {
-                        params.clustering_threshold = clustering_threshold;
-                        reprocess_data = true;
-                    }
+                    Ok(clustering_threshold) => params.clustering_threshold = clustering_threshold,
                     Err(_) => {}
                 }
             }
         });
 
-    reprocess_data |= refetch_data;
-
-    (refetch_data, reprocess_data)
+    should_rerender
 }

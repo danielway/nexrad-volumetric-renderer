@@ -1,14 +1,15 @@
-use crate::data::{get_data, get_points};
-use crate::gui::{GuiState, render_gui};
+use crate::gui::{render_gui, GuiState};
 use crate::object::{get_earth_object, get_point_cloud_object, get_radar_indicator_object};
 use crate::param::{ClusteringMode, InteractionMode, Parameters, PointColorMode};
+use crate::processing::do_fetch_and_process;
 use chrono::{NaiveDate, NaiveTime};
 use dbscan::Classification;
-use hsl::HSL;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use three_d::{ClearState, FrameOutput, Vector3, Viewport, Window, WindowSettings, GUI, Gm, InstancedMesh, ColorMaterial};
-use crate::processing::do_fetch_and_process;
+use three_d::{
+    ClearState, ColorMaterial, FrameOutput, Gm, InstancedMesh, Vector3, Viewport, Window,
+    WindowSettings, GUI,
+};
 
 use crate::result::Result;
 use crate::scene::{do_auto_orbit, get_camera_and_control, get_sun_light};
@@ -18,10 +19,10 @@ mod data;
 mod gui;
 mod object;
 mod param;
+mod processing;
 mod result;
 mod scene;
 mod state;
-mod processing;
 
 const TARGET_SITE: &str = "KDMX";
 
@@ -107,13 +108,12 @@ async fn execute(site: &str, date: &NaiveDate, time: &NaiveTime) -> Result<()> {
             frame_input.viewport,
             frame_input.device_pixel_ratio,
             |gui_context| {
-                let mut state = state.lock().unwrap();
-                let (refetch_data, reprocess_data) = render_gui(
-                    gui_context,
-                    &state,
-                    &mut gui_state,
-                    &mut parameters,
-                );
+                let should_rerender =
+                    render_gui(gui_context, &state, &mut gui_state, &mut parameters);
+
+                if should_rerender {
+                    point_cloud = None;
+                }
             },
         );
 

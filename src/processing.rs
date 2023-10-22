@@ -1,10 +1,10 @@
-use std::sync::{Arc, Mutex};
-use chrono::{NaiveDate, NaiveTime};
-use hsl::HSL;
 use crate::data::{get_data, get_points};
 use crate::do_dbscan_clustering;
-use crate::state::State;
 use crate::result::Result;
+use crate::state::State;
+use chrono::{NaiveDate, NaiveTime};
+use hsl::HSL;
+use std::sync::{Arc, Mutex};
 
 pub fn do_fetch_and_process(
     site: String,
@@ -13,7 +13,8 @@ pub fn do_fetch_and_process(
     state: Arc<Mutex<State>>,
 ) {
     tokio::spawn(async move {
-        fetch_and_process(site, date, time, state).await
+        fetch_and_process(site, date, time, state)
+            .await
             .expect("fetch and processes successfully");
     });
 }
@@ -41,7 +42,6 @@ pub async fn fetch_and_process(
     let sampled_points = points.into_iter().step_by(1000).collect::<Vec<_>>();
     println!("Scan contains {} points.", sampled_points.len());
 
-    // todo: we need to refetch / reprocess data when params change
     // todo: we need to weight and rescale geometrically before clustering
     // todo: in addition to result/density, weight should consider gate distance
 
