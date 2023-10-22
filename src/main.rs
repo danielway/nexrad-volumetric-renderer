@@ -1,7 +1,7 @@
 use crate::data::{get_data, get_points};
-use crate::gui::render_gui;
+use crate::gui::{GuiState, render_gui};
 use crate::object::{get_earth_object, get_point_cloud_object, get_radar_indicator_object};
-use crate::param::{ClusteringMode, InteractionMode, Parameters, PointWeightMode};
+use crate::param::{ClusteringMode, InteractionMode, Parameters, PointColorMode};
 use chrono::{NaiveDate, NaiveTime};
 use dbscan::Classification;
 use hsl::HSL;
@@ -104,6 +104,14 @@ async fn execute(site: &str, date: &NaiveDate, time: &NaiveTime) -> Result<()> {
     let mut gui = GUI::new(&context);
 
     let mut angle_deg = 0.0;
+
+    let mut gui_state = GuiState {
+        date_string: date.to_string(),
+        time_string: time.to_string(),
+        data_sampling_string: 100.to_string(),
+        clustering_threshold_string: 10.to_string(),
+    };
+
     let mut parameters = Parameters {
         site: site.to_string(),
         date: *date,
@@ -111,7 +119,7 @@ async fn execute(site: &str, date: &NaiveDate, time: &NaiveTime) -> Result<()> {
         interaction_mode: InteractionMode::Orbit,
         data_sampling: 100,
         clustering_mode: ClusteringMode::DBSCAN,
-        point_weight_mode: PointWeightMode::ReturnStrength,
+        point_color_mode: PointColorMode::Raw,
         clustering_threshold: 10.0,
     };
 
@@ -141,7 +149,11 @@ async fn execute(site: &str, date: &NaiveDate, time: &NaiveTime) -> Result<()> {
             frame_input.viewport,
             frame_input.device_pixel_ratio,
             |gui_context| {
-                render_gui(gui_context, &mut parameters);
+                let (refetch_data, reprocess_data) = render_gui(
+                    gui_context,
+                    &mut gui_state,
+                    &mut parameters,
+                );
             },
         );
 

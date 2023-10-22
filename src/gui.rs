@@ -1,14 +1,25 @@
 use crate::param::ClusteringMode::{DBSCAN, KNN};
 use crate::param::InteractionMode::{ManualOrbit, Orbit};
 use crate::param::Parameters;
-use crate::param::PointWeightMode::{Density, Hybrid, ReturnStrength};
+use crate::param::PointColorMode::{Density, Hybrid, Raw};
 use crate::CONTROL_PANEL_WIDTH;
 use chrono::{NaiveDate, NaiveTime};
 use std::str::FromStr;
 use three_d::egui::Context;
 
-pub fn render_gui(gui_context: &Context, params: &mut Parameters) {
+pub struct GuiState {
+    pub date_string: String,
+    pub time_string: String,
+    pub data_sampling_string: String,
+    pub clustering_threshold_string: String,
+}
+
+pub fn render_gui(gui_context: &Context, state: &mut GuiState, params: &mut Parameters) -> (bool, bool) {
     use three_d::egui::*;
+    
+    let mut refetch_data = false;
+    let mut reprocess_data = false;
+    
     SidePanel::left("side_panel")
         .exact_width(CONTROL_PANEL_WIDTH)
         .resizable(false)
@@ -19,28 +30,44 @@ pub fn render_gui(gui_context: &Context, params: &mut Parameters) {
 
             ui.add_space(10.0);
 
-            ui.label("Site");
-            ui.text_edit_singleline(&mut params.site);
-
-            ui.label("Date");
-            let mut date_string = params.date.to_string();
-            let date_input = ui.text_edit_singleline(&mut date_string);
-            if date_input.changed() {
-                match NaiveDate::from_str(&date_string) {
-                    Ok(date) => params.date = date,
-                    Err(_) => {}
+            ui.columns(2, |columns| {
+                columns[0].label("Site");
+                
+                let site_input = columns[1].text_edit_singleline(&mut params.site);
+                if site_input.changed() {
+                    refetch_data = true;
                 }
-            }
+            });
 
-            ui.label("Time");
-            let mut time_string = params.time.to_string();
-            let time_input = ui.text_edit_singleline(&mut time_string);
-            if time_input.changed() {
-                match NaiveTime::from_str(&time_string) {
-                    Ok(time) => params.time = time,
-                    Err(_) => {}
+            ui.columns(2, |columns| {
+                columns[0].label("Date");
+
+                let date_input = columns[1].text_edit_singleline(&mut state.date_string);
+                if date_input.changed() {
+                    match NaiveDate::from_str(&state.date_string) {
+                        Ok(date) => {
+                            params.date = date;
+                            refetch_data = true;
+                        }
+                        Err(_) => {}
+                    }
                 }
-            }
+            });
+
+            ui.columns(2, |columns| {
+                columns[0].label("Time");
+
+                let time_input = columns[1].text_edit_singleline(&mut state.time_string);
+                if time_input.changed() {
+                    match NaiveTime::from_str(&state.time_string) {
+                        Ok(time) => {
+                            params.time = time;
+                            refetch_data = true;
+                        },
+                        Err(_) => {}
+                    }
+                }
+            });
 
             ui.add_space(10.0);
 
@@ -50,40 +77,77 @@ pub fn render_gui(gui_context: &Context, params: &mut Parameters) {
 
             ui.add_space(10.0);
 
+            ui.separator();
+
+            ui.add_space(10.0);
+
             ui.label("Data Sampling");
-            let mut data_sampling_string = params.data_sampling.to_string();
-            let data_sampling_input = ui.text_edit_singleline(&mut data_sampling_string);
+            
+            let data_sampling_input = ui.text_edit_singleline(&mut state.data_sampling_string);
             if data_sampling_input.changed() {
-                match u16::from_str(&data_sampling_string) {
-                    Ok(data_sampling) => params.data_sampling = data_sampling,
+                match u16::from_str(&state.data_sampling_string) {
+                    Ok(data_sampling) => {
+                        params.data_sampling = data_sampling;
+                        reprocess_data = true;
+                    },
                     Err(_) => {}
                 }
             }
 
             ui.add_space(10.0);
 
-            ui.label("Point Weight Mode");
-            ui.radio_value(&mut params.point_weight_mode, ReturnStrength, "Return");
-            ui.radio_value(&mut params.point_weight_mode, Density, "Density");
-            ui.radio_value(&mut params.point_weight_mode, Hybrid, "Hybrid");
+            ui.label("Point Color Mode");
+            
+            let raw_input = ui.radio_value(&mut params.point_color_mode, Raw, "Raw");
+            if raw_input.changed() {
+                reprocess_data = true;
+            }
+            
+            let density_input = ui.radio_value(&mut params.point_color_mode, Density, "Density");
+            if density_input.changed() {
+                reprocess_data = true;
+            }
+            
+            let hybrid_input = ui.radio_value(&mut params.point_color_mode, Hybrid, "Hybrid");
+            if hybrid_input.changed() {
+                reprocess_data = true;
+            }
+
+            ui.add_space(10.0);
+
+            ui.separator();
 
             ui.add_space(10.0);
 
             ui.label("Clustering Mode");
-            ui.radio_value(&mut params.clustering_mode, KNN, "KNN");
-            ui.radio_value(&mut params.clustering_mode, DBSCAN, "DBSCAN");
+            
+            let knn_input = ui.radio_value(&mut params.clustering_mode, KNN, "KNN");
+            if knn_input.changed() {
+                reprocess_data = true;
+            }
+            
+            let dbscan_input = ui.radio_value(&mut params.clustering_mode, DBSCAN, "DBSCAN");
+            if dbscan_input.changed() {
+                reprocess_data = true;
+            }
 
             ui.add_space(10.0);
 
             ui.label("Clustering Threshold");
-            let mut clustering_threshold_string = params.clustering_threshold.to_string();
             let clustering_threshold_input =
-                ui.text_edit_singleline(&mut clustering_threshold_string);
+                ui.text_edit_singleline(&mut state.clustering_threshold_string);
             if clustering_threshold_input.changed() {
-                match f32::from_str(&clustering_threshold_string) {
-                    Ok(clustering_threshold) => params.clustering_threshold = clustering_threshold,
+                match f32::from_str(&state.clustering_threshold_string) {
+                    Ok(clustering_threshold) => {
+                        params.clustering_threshold = clustering_threshold;
+                        reprocess_data = true;
+                    }
                     Err(_) => {}
                 }
             }
         });
+    
+    reprocess_data |= refetch_data;
+
+    (refetch_data, reprocess_data)
 }

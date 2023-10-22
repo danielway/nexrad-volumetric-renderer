@@ -7,8 +7,8 @@ pub enum InteractionMode {
 }
 
 #[derive(Eq, PartialEq)]
-pub enum PointWeightMode {
-    ReturnStrength,
+pub enum PointColorMode {
+    Raw,
     Density,
     Hybrid,
 }
@@ -25,7 +25,7 @@ pub struct Parameters {
     pub time: NaiveTime,
     pub interaction_mode: InteractionMode,
     pub data_sampling: u16,
-    pub point_weight_mode: PointWeightMode,
+    pub point_color_mode: PointColorMode,
     pub clustering_mode: ClusteringMode,
     pub clustering_threshold: f32,
 }
