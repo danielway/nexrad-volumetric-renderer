@@ -2,11 +2,9 @@
 
 Project exploring 3D volumetric rendering of NEXRAD radar data in an interactive/explorative environment.
 
-
 _GUI including controls for data visualization and processing:_
 
-<img width="1276" alt="image" src="https://github.com/danielway/nexrad-volumetric-renderer/assets/1724257/772d7182-e13d-42df-a176-603bf3aeec13">
-
+<img width="1440" alt="image" src="https://github.com/danielway/nexrad-volumetric-renderer/assets/1724257/96378b91-4bec-47b1-b63f-819a238650bc">
 
 _Orbiting render of EF4 storm near Des Moines, IA:_
 
