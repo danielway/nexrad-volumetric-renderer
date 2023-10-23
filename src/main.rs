@@ -45,7 +45,6 @@ type ColoredPoint = (Vector3<f32>, (u8, u8, u8));
 async fn execute(site: &str, date: &NaiveDate, time: &NaiveTime) -> Result<()> {
     let window = Window::new(WindowSettings {
         title: "NEXRAD Volumetric Renderer".to_string(),
-        max_size: Some((1280, 720)),
         ..Default::default()
     })?;
 
