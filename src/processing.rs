@@ -2,27 +2,23 @@ use crate::data::{get_data, get_points};
 use crate::do_dbscan_clustering;
 use crate::result::Result;
 use crate::state::State;
-use chrono::{NaiveDate, NaiveTime};
 use hsl::HSL;
 use std::sync::{Arc, Mutex};
+use crate::param::DataParams;
 
 pub fn do_fetch_and_process(
-    site: String,
-    date: NaiveDate,
-    time: NaiveTime,
+    data_params: DataParams,
     state: Arc<Mutex<State>>,
 ) {
     tokio::spawn(async move {
-        fetch_and_process(site, date, time, state)
+        fetch_and_process(data_params, state)
             .await
             .expect("fetch and processes successfully");
     });
 }
 
 pub async fn fetch_and_process(
-    site: String,
-    date: NaiveDate,
-    time: NaiveTime,
+    data_params: DataParams,
     state: Arc<Mutex<State>>,
 ) -> Result<()> {
     {
@@ -35,11 +31,11 @@ pub async fn fetch_and_process(
         state.processing = true;
     }
 
-    let decoded = get_data(&site, &date, &time).await?;
+    let decoded = get_data(&data_params.site, &data_params.date, &data_params.time).await?;
     let points = get_points(&decoded, 0.5);
 
     // Sample dataset to speed processing
-    let sampled_points = points.into_iter().step_by(1000).collect::<Vec<_>>();
+    let sampled_points = points.into_iter().step_by(data_params.sampling as usize).collect::<Vec<_>>();
     println!("Scan contains {} points.", sampled_points.len());
 
     // todo: we need to weight and rescale geometrically before clustering

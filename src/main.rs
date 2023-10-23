@@ -60,20 +60,20 @@ async fn execute(site: &str, date: &NaiveDate, time: &NaiveTime) -> Result<()> {
         points: None,
     }));
 
-    do_fetch_and_process(site.to_string(), *date, *time, state.clone());
-
-    let mut render_parameters = VisParams {
-        interaction_mode: InteractionMode::ManualOrbit,
-        point_color_mode: PointColorMode::Raw,
-    };
-
     let mut data_parameters = DataParams {
         site: site.to_string(),
         date: *date,
         time: *time,
-        sampling: 100,
+        sampling: 10000,
         clustering_mode: ClusteringMode::DBSCAN,
         clustering_threshold: 10.0,
+    };
+
+    do_fetch_and_process(data_parameters.clone(), state.clone());
+
+    let mut render_parameters = VisParams {
+        interaction_mode: InteractionMode::ManualOrbit,
+        point_color_mode: PointColorMode::Raw,
     };
 
     let (mut camera, mut control) = get_camera_and_control(&window);
@@ -114,12 +114,7 @@ async fn execute(site: &str, date: &NaiveDate, time: &NaiveTime) -> Result<()> {
             if let Some(updated_data_parameters) = updated_data_parameters {
                 data_parameters = updated_data_parameters;
                 point_cloud = None;
-                do_fetch_and_process(
-                    data_parameters.site.clone(),
-                    data_parameters.date,
-                    data_parameters.time,
-                    state.clone(),
-                );
+                do_fetch_and_process(data_parameters.clone(), state.clone());
             }
         }
 
