@@ -1,8 +1,6 @@
 use crate::gui::Gui;
 use crate::object::{get_earth_object, get_point_cloud_object, get_radar_indicator_object};
-use crate::param::{
-    ClusteringMode, DataParameters, InteractionMode, PointColorMode, RenderParameters,
-};
+use crate::param::{ClusteringMode, DataParams, InteractionMode, PointColorMode, VisParams};
 use crate::processing::do_fetch_and_process;
 use chrono::{NaiveDate, NaiveTime};
 use dbscan::Classification;
@@ -64,16 +62,16 @@ async fn execute(site: &str, date: &NaiveDate, time: &NaiveTime) -> Result<()> {
 
     do_fetch_and_process(site.to_string(), *date, *time, state.clone());
 
-    let mut render_parameters = RenderParameters {
+    let mut render_parameters = VisParams {
         interaction_mode: InteractionMode::ManualOrbit,
         point_color_mode: PointColorMode::Raw,
     };
 
-    let mut data_parameters = DataParameters {
+    let mut data_parameters = DataParams {
         site: site.to_string(),
         date: *date,
         time: *time,
-        data_sampling: 100,
+        sampling: 100,
         clustering_mode: ClusteringMode::DBSCAN,
         clustering_threshold: 10.0,
     };

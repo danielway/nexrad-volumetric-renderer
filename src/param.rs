@@ -14,23 +14,23 @@ pub enum PointColorMode {
 }
 
 #[derive(PartialEq, Clone)]
-pub struct RenderParameters {
+pub struct VisParams {
     pub interaction_mode: InteractionMode,
     pub point_color_mode: PointColorMode,
 }
 
-#[derive(Eq, PartialEq, Copy, Clone)]
+#[derive(Eq, PartialEq, Copy, Clone, Debug)]
 pub enum ClusteringMode {
     KNN,
     DBSCAN,
 }
 
 #[derive(PartialEq, Clone)]
-pub struct DataParameters {
+pub struct DataParams {
     pub site: String,
     pub date: NaiveDate,
     pub time: NaiveTime,
-    pub data_sampling: u16,
+    pub sampling: u16,
     pub clustering_mode: ClusteringMode,
     pub clustering_threshold: f32,
 }

@@ -1,7 +1,7 @@
 use crate::{ColoredPoint, RENDER_RATIO_TO_M};
 use three_d::{
     degrees, vec3, ColorMaterial, Context, CpuMaterial, CpuMesh, Gm, InstancedMesh, Mat4, Mesh,
-    PhysicalMaterial, PointCloud, Positions, Srgba, Vector3,
+    PhysicalMaterial, PointCloud, Positions, Srgba,
 };
 
 const EARTH_RADIUS_M: f32 = 6356752.3;
