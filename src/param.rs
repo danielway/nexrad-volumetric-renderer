@@ -13,20 +13,24 @@ pub enum PointColorMode {
     Hybrid,
 }
 
+#[derive(PartialEq, Clone)]
+pub struct RenderParameters {
+    pub interaction_mode: InteractionMode,
+    pub point_color_mode: PointColorMode,
+}
+
 #[derive(Eq, PartialEq, Copy, Clone)]
 pub enum ClusteringMode {
     KNN,
     DBSCAN,
 }
 
-#[derive(Clone)]
-pub struct Parameters {
+#[derive(PartialEq, Clone)]
+pub struct DataParameters {
     pub site: String,
     pub date: NaiveDate,
     pub time: NaiveTime,
-    pub interaction_mode: InteractionMode,
     pub data_sampling: u16,
-    pub point_color_mode: PointColorMode,
     pub clustering_mode: ClusteringMode,
     pub clustering_threshold: f32,
 }

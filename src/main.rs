@@ -1,6 +1,8 @@
-use crate::gui::{render_gui, GuiState};
+use crate::gui::Gui;
 use crate::object::{get_earth_object, get_point_cloud_object, get_radar_indicator_object};
-use crate::param::{ClusteringMode, InteractionMode, Parameters, PointColorMode};
+use crate::param::{
+    ClusteringMode, DataParameters, InteractionMode, PointColorMode, RenderParameters,
+};
 use crate::processing::do_fetch_and_process;
 use chrono::{NaiveDate, NaiveTime};
 use dbscan::Classification;
@@ -8,7 +10,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use three_d::{
     ClearState, ColorMaterial, FrameOutput, Gm, InstancedMesh, Vector3, Viewport, Window,
-    WindowSettings, GUI,
+    WindowSettings,
 };
 
 use crate::result::Result;
@@ -62,28 +64,24 @@ async fn execute(site: &str, date: &NaiveDate, time: &NaiveTime) -> Result<()> {
 
     do_fetch_and_process(site.to_string(), *date, *time, state.clone());
 
-    let (mut camera, mut control) = get_camera_and_control(&window);
-    let mut gui = GUI::new(&context);
-
-    let mut angle_deg = 0.0;
-
-    let mut gui_state = GuiState {
-        date_string: date.to_string(),
-        time_string: time.to_string(),
-        data_sampling_string: 100.to_string(),
-        clustering_threshold_string: 10.to_string(),
+    let mut render_parameters = RenderParameters {
+        interaction_mode: InteractionMode::ManualOrbit,
+        point_color_mode: PointColorMode::Raw,
     };
 
-    let mut parameters = Parameters {
+    let mut data_parameters = DataParameters {
         site: site.to_string(),
         date: *date,
         time: *time,
-        interaction_mode: InteractionMode::ManualOrbit,
         data_sampling: 100,
         clustering_mode: ClusteringMode::DBSCAN,
-        point_color_mode: PointColorMode::Raw,
         clustering_threshold: 10.0,
     };
+
+    let (mut camera, mut control) = get_camera_and_control(&window);
+    let mut gui = Gui::new(&context, &data_parameters);
+
+    let mut angle_deg = 0.0;
 
     let mut point_cloud: Option<Gm<InstancedMesh, ColorMaterial>> = None;
 
@@ -98,36 +96,34 @@ async fn execute(site: &str, date: &NaiveDate, time: &NaiveTime) -> Result<()> {
 
         control.handle_events(&mut camera, &mut frame_input.events);
 
-        if parameters.interaction_mode == InteractionMode::Orbit {
+        if render_parameters.interaction_mode == InteractionMode::Orbit {
             do_auto_orbit(&mut angle_deg, &mut camera);
         }
 
-        gui.update(
-            &mut frame_input.events,
-            frame_input.accumulated_time,
-            frame_input.viewport,
-            frame_input.device_pixel_ratio,
-            |gui_context| {
-                let current_state = state.lock().unwrap();
-                let prior_params = parameters.clone();
-                render_gui(
-                    gui_context,
-                    &current_state,
-                    &mut gui_state,
-                    &mut parameters,
-                    || {
-                        do_fetch_and_process(
-                            prior_params.site.clone(),
-                            prior_params.date,
-                            prior_params.time,
-                            state.clone(),
-                        );
+        {
+            let current_state = state.lock().unwrap();
+            let (updated_render_parameters, updated_data_parameters) = gui.update(
+                &mut frame_input,
+                &current_state,
+                &render_parameters,
+                &data_parameters,
+            );
 
-                        point_cloud = None;
-                    },
+            if let Some(updated_render_parameters) = updated_render_parameters {
+                render_parameters = updated_render_parameters;
+            }
+
+            if let Some(updated_data_parameters) = updated_data_parameters {
+                data_parameters = updated_data_parameters;
+                point_cloud = None;
+                do_fetch_and_process(
+                    data_parameters.site.clone(),
+                    data_parameters.date,
+                    data_parameters.time,
+                    state.clone(),
                 );
-            },
-        );
+            }
+        }
 
         let objects = earth.into_iter().chain(&radar_indicator);
 
@@ -153,8 +149,7 @@ async fn execute(site: &str, date: &NaiveDate, time: &NaiveTime) -> Result<()> {
                 .render(&camera, objects, &[&sun]);
         };
 
-        frame_input.screen().write(|| gui.render());
-
+        gui.render(&frame_input);
         FrameOutput::default()
     });
 
