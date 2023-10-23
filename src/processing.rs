@@ -1,9 +1,8 @@
 use crate::data::{get_data, get_points};
-use crate::do_dbscan_clustering;
 use crate::result::Result;
-use crate::state::State;
-use hsl::HSL;
+use crate::state::{ProcessingStatistics, State};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 use crate::param::DataParams;
 
 pub fn do_fetch_and_process(
@@ -31,8 +30,18 @@ pub async fn fetch_and_process(
         state.processing = true;
     }
 
-    let decoded = get_data(&data_params.site, &data_params.date, &data_params.time).await?;
+    let mut stats = ProcessingStatistics::default();
+
+    let decoded = get_data(
+        &data_params.site,
+        &data_params.date,
+        &data_params.time,
+        &mut stats,
+    ).await?;
+
+    let pointing_start = Instant::now();
     let points = get_points(&decoded, 0.5);
+    stats.pointing_ms = pointing_start.elapsed().as_millis();
 
     // Sample dataset to speed processing
     let sampled_points = points.into_iter().step_by(data_params.sampling as usize).collect::<Vec<_>>();
@@ -82,6 +91,7 @@ pub async fn fetch_and_process(
     let mut state = state.lock().unwrap();
     state.points = Some(sampled_points);
     state.processing = false;
+    state.statistics = Some(stats);
 
     println!("Done fetch/processing!");
 

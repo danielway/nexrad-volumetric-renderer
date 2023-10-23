@@ -7,12 +7,21 @@ use nexrad::download::{download_file, list_files};
 use nexrad::file::FileMetadata;
 use nexrad::model::DataFile;
 use std::f32::consts::PI;
+use std::time::Instant;
 use three_d::Vector3;
+use crate::state::ProcessingStatistics;
 
 const BELOW_THRESHOLD: f32 = 999.0;
 const MOMENT_FOLDED: f32 = 998.0;
 
-pub async fn get_data(site: &str, date: &NaiveDate, time: &NaiveTime) -> Result<DataFile> {
+pub async fn get_data(
+    site: &str,
+    date: &NaiveDate,
+    time: &NaiveTime,
+    stats: &mut ProcessingStatistics,
+) -> Result<DataFile> {
+    let load_start = Instant::now();
+
     let files = list_files(site, date).await?;
     if files.is_empty() {
         panic!("No files found for date/site");
@@ -34,10 +43,16 @@ pub async fn get_data(site: &str, date: &NaiveDate, time: &NaiveTime) -> Result<
         std::fs::read(&file.identifier())?
     };
 
+    stats.load_ms = load_start.elapsed().as_millis();
+
+    let decompress_start = Instant::now();
     let decompressed_data = decompress_file(&data)?;
+    stats.decompress_ms = decompress_start.elapsed().as_millis();
     println!("Decompressed file has {} bytes.", decompressed_data.len());
 
+    let decode_start = Instant::now();
     let decoded = decode_file(&decompressed_data)?;
+    stats.decode_ms = decode_start.elapsed().as_millis();
     println!(
         "Decoded file has {} elevation scans.",
         decoded.elevation_scans().len()

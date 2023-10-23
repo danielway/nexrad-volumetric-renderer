@@ -197,6 +197,20 @@ impl Gui {
     fn update_status(&self, ui: &mut Ui, state: &State) {
         ui.with_layout(Layout::bottom_up(Align::Center), |ui| {
             ui.add_space(10.0);
+
+            if let Some(ref stats) = state.statistics {
+                ui.label(format!(
+                    "Load {}, Decompress {}, Decode {}, \
+                    Pointing {}, Sampling {}, Coloring {}",
+                    stats.load_ms,
+                    stats.decompress_ms,
+                    stats.decode_ms,
+                    stats.pointing_ms,
+                    stats.sampling_ms,
+                    stats.coloring_ms,
+                ));
+            }
+
             if state.processing {
                 ui.colored_label(Color32::from_rgb(255, 0, 0), "Processing data...");
             }

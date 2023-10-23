@@ -58,6 +58,7 @@ async fn execute(site: &str, date: &NaiveDate, time: &NaiveTime) -> Result<()> {
     let state = Arc::new(Mutex::new(State {
         processing: false,
         points: None,
+        statistics: None,
     }));
 
     let mut data_parameters = DataParams {
@@ -99,7 +100,7 @@ async fn execute(site: &str, date: &NaiveDate, time: &NaiveTime) -> Result<()> {
         }
 
         {
-            let current_state = state.lock().unwrap();
+            let mut current_state = state.lock().unwrap();
             let (updated_render_parameters, updated_data_parameters) = gui.update(
                 &mut frame_input,
                 &current_state,
@@ -114,6 +115,7 @@ async fn execute(site: &str, date: &NaiveDate, time: &NaiveTime) -> Result<()> {
             if let Some(updated_data_parameters) = updated_data_parameters {
                 data_parameters = updated_data_parameters;
                 point_cloud = None;
+                current_state.statistics = None;
                 do_fetch_and_process(data_parameters.clone(), state.clone());
             }
         }
