@@ -1,3 +1,4 @@
+use crate::param::{PointColorMode, VisParams};
 use crate::{ColoredPoint, RENDER_RATIO_TO_M};
 use three_d::{
     degrees, vec3, ColorMaterial, Context, CpuMaterial, CpuMesh, Gm, InstancedMesh, Mat4, Mesh,
@@ -68,19 +69,28 @@ pub fn get_radar_indicator_object(context: &Context) -> Gm<Mesh, PhysicalMateria
 
 pub fn get_point_cloud_object(
     context: &Context,
+    vis_params: &VisParams,
     points: Vec<ColoredPoint>,
 ) -> Gm<InstancedMesh, ColorMaterial> {
     let mut point_cloud = PointCloud::default();
     point_cloud.positions = Positions::F32(
         points
             .iter()
-            .map(|(p, _)| vec3(p.x, p.y, p.z))
+            .map(|p| vec3(p.pos.x, p.pos.y, p.pos.z))
             .collect::<Vec<_>>(),
     );
     point_cloud.colors = Some(
         points
             .iter()
-            .map(|(_, c)| Srgba::new(c.0, c.1, c.2, 255))
+            .map(|p| {
+                let color = match vis_params.point_color_mode {
+                    PointColorMode::Raw => p.raw,
+                    PointColorMode::Density => p.density,
+                    PointColorMode::Hybrid => p.hybrid,
+                };
+
+                Srgba::new(color.0, color.1, color.2, 255)
+            })
             .collect::<Vec<_>>(),
     );
 

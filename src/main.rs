@@ -1,14 +1,13 @@
+use crate::data::ColoredPoint;
 use crate::gui::Gui;
 use crate::object::{get_earth_object, get_point_cloud_object, get_radar_indicator_object};
 use crate::param::{ClusteringMode, DataParams, InteractionMode, PointColorMode, VisParams};
 use crate::processing::do_fetch_and_process;
 use chrono::{NaiveDate, NaiveTime};
-use dbscan::Classification;
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::thread::current;
 use three_d::{
-    ClearState, ColorMaterial, FrameOutput, Gm, InstancedMesh, Vector3, Viewport, Window,
-    WindowSettings,
+    ClearState, ColorMaterial, FrameOutput, Gm, InstancedMesh, Viewport, Window, WindowSettings,
 };
 
 use crate::result::Result;
@@ -40,8 +39,6 @@ const RENDER_RATIO_TO_M: f32 = 0.00001; // every 1.0 in the render == 1.0/RENDER
 
 const CONTROL_PANEL_WIDTH: f32 = 200.0;
 
-type ColoredPoint = (Vector3<f32>, (u8, u8, u8));
-
 async fn execute(site: &str, date: &NaiveDate, time: &NaiveTime) -> Result<()> {
     let window = Window::new(WindowSettings {
         title: "NEXRAD Volumetric Renderer".to_string(),
@@ -60,7 +57,7 @@ async fn execute(site: &str, date: &NaiveDate, time: &NaiveTime) -> Result<()> {
         statistics: None,
     }));
 
-    let mut data_parameters = DataParams {
+    let mut data_params = DataParams {
         site: site.to_string(),
         date: *date,
         time: *time,
@@ -69,15 +66,15 @@ async fn execute(site: &str, date: &NaiveDate, time: &NaiveTime) -> Result<()> {
         clustering_threshold: 10.0,
     };
 
-    do_fetch_and_process(data_parameters.clone(), state.clone());
+    do_fetch_and_process(data_params.clone(), state.clone());
 
-    let mut render_parameters = VisParams {
+    let mut vis_params = VisParams {
         interaction_mode: InteractionMode::ManualOrbit,
         point_color_mode: PointColorMode::Raw,
     };
 
     let (mut camera, mut control) = get_camera_and_control(&window);
-    let mut gui = Gui::new(&context, &data_parameters);
+    let mut gui = Gui::new(&context, &data_params);
 
     let mut angle_deg = 0.0;
 
@@ -94,28 +91,26 @@ async fn execute(site: &str, date: &NaiveDate, time: &NaiveTime) -> Result<()> {
 
         control.handle_events(&mut camera, &mut frame_input.events);
 
-        if render_parameters.interaction_mode == InteractionMode::Orbit {
+        if vis_params.interaction_mode == InteractionMode::Orbit {
             do_auto_orbit(&mut angle_deg, &mut camera);
         }
 
         {
             let mut current_state = state.lock().unwrap();
-            let (updated_render_parameters, updated_data_parameters) = gui.update(
-                &mut frame_input,
-                &current_state,
-                &render_parameters,
-                &data_parameters,
-            );
+            let (new_vis_params, new_data_params) =
+                gui.update(&mut frame_input, &current_state, &vis_params, &data_params);
 
-            if let Some(updated_render_parameters) = updated_render_parameters {
-                render_parameters = updated_render_parameters;
+            if let Some(new_vis_params) = new_vis_params {
+                vis_params = new_vis_params;
+                point_cloud = None;
             }
 
-            if let Some(updated_data_parameters) = updated_data_parameters {
-                data_parameters = updated_data_parameters;
+            if let Some(new_data_params) = new_data_params {
+                data_params = new_data_params;
                 point_cloud = None;
+                current_state.points = None;
                 current_state.statistics = None;
-                do_fetch_and_process(data_parameters.clone(), state.clone());
+                do_fetch_and_process(data_params.clone(), state.clone());
             }
         }
 
@@ -125,8 +120,9 @@ async fn execute(site: &str, date: &NaiveDate, time: &NaiveTime) -> Result<()> {
             {
                 let mut state = state.lock().unwrap();
                 if !state.processing && state.points.is_some() {
-                    let points = state.points.take().unwrap();
-                    point_cloud = Some(get_point_cloud_object(&context, points));
+                    println!("Regenerating point cloud...");
+                    let points = state.points.as_ref().unwrap().clone();
+                    point_cloud = Some(get_point_cloud_object(&context, &vis_params, points));
                 }
             }
         }
@@ -148,38 +144,4 @@ async fn execute(site: &str, date: &NaiveDate, time: &NaiveTime) -> Result<()> {
     });
 
     Ok(())
-}
-
-// Returns: (clustered points, unclustered points)
-fn do_dbscan_clustering(points: Vec<ColoredPoint>) -> (Vec<Vec<ColoredPoint>>, Vec<ColoredPoint>) {
-    let mut clusters = HashMap::new();
-    let mut unclustered_points = Vec::new();
-
-    let vectorized_points: Vec<Vec<f32>> = points
-        .iter()
-        .map(|(p, _)| vec![p.x, p.y, p.z])
-        .collect::<Vec<_>>();
-
-    let classifications = dbscan::cluster(0.05, 5, &vectorized_points);
-
-    for (colored_point, classification) in points.into_iter().zip(classifications) {
-        match classification {
-            Classification::Core(cluster) => {
-                if !clusters.contains_key(&cluster) {
-                    clusters.insert(cluster, Vec::new());
-                }
-
-                clusters.get_mut(&cluster).unwrap().push(colored_point);
-            }
-            _ => unclustered_points.push(colored_point),
-        }
-    }
-
-    (
-        clusters
-            .into_iter()
-            .map(|(_, points)| points)
-            .collect::<Vec<_>>(),
-        unclustered_points,
-    )
 }

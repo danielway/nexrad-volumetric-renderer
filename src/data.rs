@@ -1,5 +1,6 @@
 use crate::result::Result;
-use crate::{ColoredPoint, RENDER_RATIO_TO_M};
+use crate::state::ProcessingStatistics;
+use crate::RENDER_RATIO_TO_M;
 use chrono::{NaiveDate, NaiveTime};
 use nexrad::decode::decode_file;
 use nexrad::decompress::decompress_file;
@@ -9,10 +10,32 @@ use nexrad::model::DataFile;
 use std::f32::consts::PI;
 use std::time::Instant;
 use three_d::Vector3;
-use crate::state::ProcessingStatistics;
 
-const BELOW_THRESHOLD: f32 = 999.0;
-const MOMENT_FOLDED: f32 = 998.0;
+pub const BELOW_THRESHOLD: f32 = 999.0;
+pub const MOMENT_FOLDED: f32 = 998.0;
+
+type RgbColor = (u8, u8, u8);
+
+#[derive(Clone)]
+pub struct ColoredPoint {
+    pub pos: Vector3<f32>,
+    pub strength: f32,
+    pub raw: RgbColor,
+    pub density: RgbColor,
+    pub hybrid: RgbColor,
+}
+
+impl ColoredPoint {
+    fn new(pos: Vector3<f32>, strength: f32) -> Self {
+        Self {
+            pos,
+            strength,
+            raw: (0, 0, 0),
+            density: (0, 0, 0),
+            hybrid: (0, 0, 0),
+        }
+    }
+}
 
 pub async fn get_data(
     site: &str,
@@ -83,7 +106,7 @@ pub fn nearest_file<'a>(files: &'a Vec<FileMetadata>, time: &NaiveTime) -> &'a F
 }
 
 pub fn get_points(data: &DataFile, threshold: f32) -> Vec<ColoredPoint> {
-    let mut points = Vec::new();
+    let mut points: Vec<ColoredPoint> = Vec::new();
 
     for (elevation, radials) in data.elevation_scans() {
         for radial in radials {
@@ -139,39 +162,10 @@ pub fn get_points(data: &DataFile, threshold: f32) -> Vec<ColoredPoint> {
                     let position_y = start_angle.sin() * scaled_distance;
                     let position_z = (*elevation as f32 * (PI / 180.0)).sin() * scaled_distance;
 
-                    let color = if scaled_gate < 5.0 || scaled_gate == BELOW_THRESHOLD {
-                        (0, 0, 0)
-                    } else if scaled_gate >= 5.0 && scaled_gate < 10.0 {
-                        (0x40, 0xe8, 0xe3)
-                    } else if scaled_gate >= 10.0 && scaled_gate < 15.0 {
-                        (0x26, 0xa4, 0xfa)
-                    } else if scaled_gate >= 15.0 && scaled_gate < 20.0 {
-                        (0x00, 0x30, 0xed)
-                    } else if scaled_gate >= 20.0 && scaled_gate < 25.0 {
-                        (0x49, 0xfb, 0x3e)
-                    } else if scaled_gate >= 25.0 && scaled_gate < 30.0 {
-                        (0x36, 0xc2, 0x2e)
-                    } else if scaled_gate >= 30.0 && scaled_gate < 35.0 {
-                        (0x27, 0x8c, 0x1e)
-                    } else if scaled_gate >= 35.0 && scaled_gate < 40.0 {
-                        (0xfe, 0xf5, 0x43)
-                    } else if scaled_gate >= 40.0 && scaled_gate < 45.0 {
-                        (0xeb, 0xb4, 0x33)
-                    } else if scaled_gate >= 45.0 && scaled_gate < 50.0 {
-                        (0xf6, 0x95, 0x2e)
-                    } else if scaled_gate >= 50.0 && scaled_gate < 55.0 {
-                        (0xf8, 0x0a, 0x26)
-                    } else if scaled_gate >= 55.0 && scaled_gate < 60.0 {
-                        (0xcb, 0x05, 0x16)
-                    } else if scaled_gate >= 60.0 && scaled_gate < 65.0 {
-                        (0xa9, 0x08, 0x13)
-                    } else if scaled_gate >= 65.0 && scaled_gate < 70.0 {
-                        (0xee, 0x34, 0xfa)
-                    } else {
-                        (0xff, 0xff, 0xFF)
-                    };
-
-                    points.push((Vector3::new(position_x, position_z, position_y), color));
+                    points.push(ColoredPoint::new(
+                        Vector3::new(position_x, position_z, position_y),
+                        scaled_gate,
+                    ));
                 }
 
                 distance_m += data_moment.data().data_moment_range_sample_interval() as f32;
