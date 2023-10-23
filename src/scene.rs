@@ -9,14 +9,14 @@ pub fn get_camera_and_control(window: &Window) -> (Camera, OrbitControl) {
     let camera = Camera::new_perspective(
         window.viewport(),
         vec3(0.0, 2.0, 5.0),
-        vec3(0.0, 0.0, -5.0),
+        vec3(0.0, -2.0, -5.0),
         vec3(0.0, 1.0, 0.0),
         degrees(45.0),
         0.1,
         1000.0,
     );
 
-    let control = OrbitControl::new(Vec3::new(0.0, 0.0, 0.0), 0.01, 5.0);
+    let control = OrbitControl::new(Vec3::new(0.0, 0.0, 0.0), 0.01, 10.0);
 
     (camera, control)
 }
